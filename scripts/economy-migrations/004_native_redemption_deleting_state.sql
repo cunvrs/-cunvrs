@@ -1,4 +1,4 @@
-﻿-- Add an exclusive deleting state for native redemption tickets.
+-- Add an exclusive deleting state for native redemption tickets.
 -- Apply to cunvrs_restore_test before production review.
 
 BEGIN;
