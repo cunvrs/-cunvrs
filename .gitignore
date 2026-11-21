@@ -144,3 +144,8 @@ dist
 # Database backup artifacts
 backups/
 *.dump
+
+# CUNVRS_STEP20C_LOCAL_BACKUP_EXCLUSIONS
+*.bak
+**/economy_dashboard_backup.js
+**/gameRewardService.current-backup.js

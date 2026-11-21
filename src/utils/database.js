@@ -166,23 +166,50 @@ export async function getGuildBirthdays(client, guildId) {
     }
 }
 
+
 export async function setBirthday(client, guildId, userId, month, day) {
     try {
-        if (!client.db || typeof client.db.set !== "function") {
-            logger.error("Database client is not available for setBirthday.");
+        if (!client.db || typeof client.db.set !== 'function') {
+            logger.error('Database client is not available for setBirthday.');
             return false;
         }
 
         const key = getGuildBirthdaysKey(guildId);
         const birthdays = await getGuildBirthdays(client, guildId);
-        birthdays[userId] = { month, day };
+        const previous = birthdays[userId];
+
+        const sameBirthday =
+            Number(previous?.month) === month &&
+            Number(previous?.day) === day;
+
+        const previousRegisteredAt = Number(previous?.registeredAt);
+
+        const validPreviousRegistration =
+            sameBirthday &&
+            Number.isSafeInteger(previousRegisteredAt) &&
+            previousRegisteredAt > 0 &&
+            previousRegisteredAt <= Date.now();
+
+        birthdays[userId] = {
+            month,
+            day,
+            registeredAt: validPreviousRegistration
+                ? previousRegisteredAt
+                : Date.now(),
+        };
+
         await client.db.set(key, birthdays);
+
         return true;
     } catch (error) {
-        logger.error(`Error setting birthday for user ${userId} in guild ${guildId}:`, error);
+        logger.error(
+            `Error setting birthday for user ${userId} in guild ${guildId}:`,
+            error
+        );
         return false;
     }
 }
+
 
 export async function deleteBirthday(client, guildId, userId) {
     try {

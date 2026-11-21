@@ -114,7 +114,8 @@ export async function getUserBirthday(client, guildId, userId) {
     return {
       month: birthdayData.month,
       day: birthdayData.day,
-      monthName: getMonthName(birthdayData.month)
+      monthName: getMonthName(birthdayData.month),
+      registeredAt: birthdayData.registeredAt ?? null
     };
   } catch (error) {
     logger.error('Error in getUserBirthday service', {

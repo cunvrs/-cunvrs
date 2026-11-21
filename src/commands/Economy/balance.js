@@ -1,87 +1,85 @@
-import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
-import { getEconomyData, getMaxBankCapacity } from '../../utils/economy.js';
-import { withErrorHandling, createError, ErrorTypes } from '../../utils/errorHandler.js';
-import { logger } from '../../utils/logger.js';
+
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { withErrorHandling } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { getPaymentPool } from './modules/paymentHandler.js';
+import { UNICOIN_EMOJI } from '../../utils/wallet.js';
+
+const PINK = 0xFFEDF4;
 
 export default {
-    data: new SlashCommandBuilder()
-        .setName('balance')
-        .setDescription("Check your or someone else's balance")
-        .addUserOption(option =>
-            option
-                .setName('user')
-                .setDescription('User to check balance for')
-                .setRequired(false)
-        ),
+  data: new SlashCommandBuilder()
+    .setName('balance')
+    .setDescription('Check your or another member’s Unicoin balance')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('Member whose balance you want to see')
+        .setRequired(false)
+    ),
 
-    execute: withErrorHandling(async (interaction, config, client) => {
-        const deferred = await InteractionHelper.safeDefer(interaction);
-        if (!deferred) return;
+  execute: withErrorHandling(async (interaction, config, client) => {
+    const deferred = await InteractionHelper.safeDefer(interaction);
+    if (!deferred) return;
 
-        const userOption = interaction.options.getUser("user");
-        const targetUser = userOption || interaction.user;
-        const guildId = interaction.guildId;
+    const targetUser =
+      interaction.options.getUser('user') || interaction.user;
 
-        logger.info(`[ECONOMY] Balance check - userOption: ${userOption?.id || 'null'}, targetUser: ${targetUser.id}, guildId: ${guildId}, isPrefix: ${!!interaction._commandStartTime}`);
+    if (targetUser.bot) {
+      await InteractionHelper.safeEditReply(interaction, {
+        content: 'Bots do not have Unicoin wallets.',
+      });
+      return;
+    }
 
-        logger.debug(`[ECONOMY] Balance check for ${targetUser.id}`, { userId: targetUser.id, guildId });
+    if (!interaction.guildId) {
+      await InteractionHelper.safeEditReply(interaction, {
+        content: 'This command can only be used in a server.',
+      });
+      return;
+    }
 
-        if (targetUser.bot) {
-            throw createError(
-                "Bot user queried for balance",
-                ErrorTypes.VALIDATION,
-                "Bots don't have an economy balance."
-            );
-        }
+    const pool = getPaymentPool();
 
-        const userData = await getEconomyData(client, guildId, targetUser.id);
+    // Read the existing wallet without creating or changing an account.
+    // PostgreSQL errors are not treated as empty wallets.
+    const result = await pool.query(
+      `SELECT balance, data
+       FROM economy
+       WHERE guild_id = $1 AND user_id = $2`,
+      [interaction.guildId, targetUser.id]
+    );
 
-        logger.info(`[ECONOMY] Economy data retrieved - userData:`, userData);
+    let wallet = 0;
 
-        if (!userData) {
-            throw createError(
-                "Failed to load economy data",
-                ErrorTypes.DATABASE,
-                "Failed to load economy data. Please try again later.",
-                { userId: targetUser.id, guildId }
-            );
-        }
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
 
-        const maxBank = getMaxBankCapacity(userData);
+      // Existing economy records may store wallet data in JSONB.
+      const rawBalance = row.data?.wallet ?? row.balance ?? 0;
+      wallet = Number(rawBalance);
 
-        const wallet = typeof userData.wallet === 'number' ? userData.wallet : 0;
-        const bank = typeof userData.bank === 'number' ? userData.bank : 0;
+      if (!Number.isSafeInteger(wallet) || wallet < 0) {
+        throw new Error('Invalid wallet balance in database.');
+      }
+    }
 
-            const embed = createEmbed({
-                title: `${targetUser.username}'s Balance`,
-                description: `Here is the current financial status for ${targetUser.username}.`,
-            })
-                .addFields(
-                    {
-                        name: "💵 Cash",
-                        value: `$${wallet.toLocaleString()}`,
-                        inline: true,
-                    },
-                    {
-                        name: "🏦 Bank",
-                        value: `$${bank.toLocaleString()} / $${maxBank.toLocaleString()}`,
-                        inline: true,
-                    },
-                    {
-                        name: "💰 Total",
-                        value: `$${(wallet + bank).toLocaleString()}`,
-                        inline: true,
-                    }
-                )
-                .setFooter({
-                    text: `Requested by ${interaction.user.tag}`,
-                    iconURL: interaction.user.displayAvatarURL(),
-                });
+    const isOwnBalance = targetUser.id === interaction.user.id;
 
-            logger.info(`[ECONOMY] Balance retrieved`, { userId: targetUser.id, wallet, bank });
+    const embed = new EmbedBuilder()
+      .setColor(PINK)
+      .setDescription(
+        `## ${UNICOIN_EMOJI} ⋮ **__${isOwnBalance ? 'your balance!' : 'unicoin balance!'}__**\n\n` +
+        `**${targetUser}**\n\n` +
+        `${UNICOIN_EMOJI} **wallet:** ${wallet.toLocaleString('en-US')}`
+      )
+      .setThumbnail(targetUser.displayAvatarURL())
+      .setFooter({ text: 'cunvrs. economy' })
+      .setTimestamp();
 
-            await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
-    }, { command: 'balance' })
+    await InteractionHelper.safeEditReply(interaction, {
+      embeds: [embed],
+      allowedMentions: { parse: [] },
+    });
+  }, { command: 'balance' }),
 };

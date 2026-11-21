@@ -1,3 +1,4 @@
+
 import { SlashCommandBuilder, MessageFlags, ChannelType } from 'discord.js';
 import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -8,8 +9,10 @@ import birthdayList from './modules/birthday_list.js';
 import birthdayRemove from './modules/birthday_remove.js';
 import nextBirthdays from './modules/next_birthdays.js';
 import birthdaySetchannel from './modules/birthday_setchannel.js';
+import birthdayClaim from './modules/birthday_claim.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
 export default {
     data: new SlashCommandBuilder()
         .setName('birthday')
@@ -72,6 +75,11 @@ export default {
                         .addChannelTypes(ChannelType.GuildText)
                         .setRequired(false)
                 )
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('claim')
+                .setDescription('Claim your annual birthday Unicoin reward')
         ),
 
     async execute(interaction, config, client) {
@@ -80,18 +88,30 @@ export default {
         switch (subcommand) {
             case 'set':
                 return await birthdaySet.execute(interaction, config, client);
+
             case 'info':
                 return await birthdayInfo.execute(interaction, config, client);
+
             case 'list':
                 return await birthdayList.execute(interaction, config, client);
+
             case 'remove':
                 return await birthdayRemove.execute(interaction, config, client);
+
             case 'next':
                 return await nextBirthdays.execute(interaction, config, client);
+
             case 'setchannel':
                 return await birthdaySetchannel.execute(interaction, config, client);
+
+            case 'claim':
+                return await birthdayClaim.execute(interaction, config, client);
+
             default:
-                return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Unknown subcommand' });
+                return await replyUserError(interaction, {
+                    type: ErrorTypes.UNKNOWN,
+                    message: 'Unknown subcommand'
+                });
         }
     }
 };

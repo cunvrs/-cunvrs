@@ -163,7 +163,7 @@ export const pgConfig = {
         
         debug: process.env.NODE_ENV === 'development',
         
-        autoCreateTables: true,
+        autoCreateTables: process.env.AUTO_CREATE_TABLES !== 'false',
         
         autoMigrate: process.env.AUTO_MIGRATE !== 'false',
     },

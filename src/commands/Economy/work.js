@@ -1,89 +1,242 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { randomUUID } from 'node:crypto';
-import { getEconomyData, setEconomyData } from '../../utils/economy.js';
-import { botConfig } from '../../config/bot.js';
-import { getCareer, careerRank } from './modules/careers.js';
 
-const COOLDOWN = botConfig.economy?.cooldowns?.work ?? 30 * 60 * 1000;
+import {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
+
+import { randomUUID, randomInt } from 'node:crypto';
+import { getCareer } from './modules/careers.js';
+import { awardWorkShift } from './modules/workRewards.js';
+import { getPaymentPool } from './modules/paymentHandler.js';
+import {
+  UNICOIN_EMOJI,
+  formatUnicoins,
+} from '../../utils/wallet.js';
+
+const PINK = 0xFFEDF4;
 const TIME_LIMIT = 30_000;
-const DAILY_LIMIT = 10;
-const locks = new Set();
-const embed = (title, description) => new EmbedBuilder().setColor(0xf6b7d2).setTitle(title).setDescription(description);
-const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const activeShifts = new Set();
+
+function makeEmbed(description) {
+  return new EmbedBuilder()
+    .setColor(PINK)
+    .setDescription(description)
+    .setFooter({ text: 'cunvrs. economy' });
+}
+
+function formatError(error) {
+  const message = String(error?.message || '');
+
+  const safeMessages = [
+    'Your career changed',
+    'Your work cooldown',
+    'Work shift already processed',
+    'You have completed all 10 shifts',
+    'Invalid work',
+  ];
+
+  if (safeMessages.some(text => message.includes(text))) {
+    return message;
+  }
+
+  return 'your shift could not be completed. please try again later!';
+}
 
 export default {
-  data: new SlashCommandBuilder().setName('work').setDescription('🎀 Work and earn unicoins!')
-    .addStringOption(o => o.setName('mode').setDescription('Choose your shift').addChoices({ name: '♡ Quick Work', value: 'quick' }, { name: '🎀 Interactive Work', value: 'interactive' })),
+  data: new SlashCommandBuilder()
+    .setName('work')
+    .setDescription('Work and earn Unicoins!')
+    .addStringOption(option =>
+      option
+        .setName('mode')
+        .setDescription('Choose your shift')
+        .addChoices(
+          { name: '♡ Quick Work', value: 'quick' },
+          { name: '🎀 Interactive Work', value: 'interactive' }
+        )
+    ),
+
   async execute(interaction, config, client) {
-    const guildId = interaction.guildId, userId = interaction.user.id;
+    const guildId = interaction.guildId;
+    const userId = interaction.user.id;
     const key = `${guildId}:${userId}`;
-    const say = (message) => interaction.reply({ embeds: [embed('🎀 ⋮ cunvrs. work!', message)], ephemeral: true });
-    if (locks.has(key)) return say('☁️ you already have a shift in progress!');
-    locks.add(key);
+
+    if (activeShifts.has(key)) {
+      await interaction.reply({
+        embeds: [
+          makeEmbed(
+            `## ${UNICOIN_EMOJI} ⋮ **__work!__**\n\n` +
+            '♡ you already have a shift in progress!'
+          ),
+        ],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    activeShifts.add(key);
+
     try {
-      const user = await getEconomyData(client, guildId, userId);
-      const job = getCareer(user.careerJob);
-      if (!job) return await say('♡ choose your career first with `/jobs list` and `/jobs apply`!');
-      const now = Date.now();
-      if (now < (user.workPendingUntil || 0)) return await say('☁️ your previous shift is still active. try again shortly!');
-      const remaining = (user.lastWork || 0) + COOLDOWN - now;
-      if (remaining > 0) return await say(`♡ rest up! you can work again <t:${Math.ceil(((user.lastWork || 0) + COOLDOWN) / 1000)}:R>.`);
-      const today = new Date(now).toISOString().slice(0, 10);
-      const shiftsToday = user.workDay === today ? (user.workDayCount || 0) : 0;
-      if (shiftsToday >= DAILY_LIMIT) return await say('♡ you have completed all 10 shifts for today! come back tomorrow (UTC).');
+      await interaction.deferReply({ ephemeral: true });
+
+      if (!guildId) {
+        throw new Error('Work is available in servers only.');
+      }
+
+      const pool = getPaymentPool();
+
+      const version = await pool.query(
+        'SELECT MAX(version) AS version FROM schema_migrations'
+      );
+
+      if (Number(version.rows[0]?.version) !== 2) {
+        throw new Error('Economy database version 2 is required.');
+      }
+
+      const account = await pool.query(
+        `SELECT data
+         FROM economy
+         WHERE guild_id = $1 AND user_id = $2`,
+        [guildId, userId]
+      );
+
+      const data = account.rows[0]?.data || {};
+      const job = getCareer(data.careerJob);
+
+      if (!job) {
+        await interaction.editReply({
+          embeds: [
+            makeEmbed(
+              `## ${UNICOIN_EMOJI} ⋮ **__work!__**\n\n` +
+              '♡ choose your career first using `/jobs list` and `/jobs apply`!'
+            ),
+          ],
+        });
+        return;
+      }
+
       const mode = interaction.options.getString('mode') || 'quick';
-      const task = job.tasks[rand(0, job.tasks.length - 1)];
-      const pay = rand(job.minPay, job.maxPay);
-      const session = randomUUID().slice(0, 12);
-      // Reserve a shift before waiting for Discord buttons. This persists across restarts.
-      user.workPendingUntil = now + TIME_LIMIT + 10_000;
-      if (!await setEconomyData(client, guildId, userId, user)) return await say('☁️ could not save your shift. try again!');
+      const basePay = randomInt(job.minPay, job.maxPay + 1);
+
       let correct = null;
+
       if (mode === 'interactive') {
-        const row = new ActionRowBuilder().addComponents(task.options.map((option, i) => new ButtonBuilder().setCustomId(`cw:${session}:${i}`).setLabel(option).setStyle(ButtonStyle.Secondary)));
-        const response = await interaction.reply({ embeds: [embed(`${job.emoji} ⋮ ${job.name} shift!`, `${task.question}\n\n♡ choose an answer within 30 seconds!`)], components: [row], ephemeral: true, fetchReply: true });
+        const task = job.tasks[randomInt(job.tasks.length)];
+        const sessionId = randomUUID().slice(0, 12);
+
+        const row = new ActionRowBuilder().addComponents(
+          task.options.map((answer, index) =>
+            new ButtonBuilder()
+              .setCustomId(`cw:${sessionId}:${index}`)
+              .setLabel(answer)
+              .setStyle(ButtonStyle.Secondary)
+          )
+        );
+
+        const message = await interaction.editReply({
+          embeds: [
+            makeEmbed(
+              `## ${UNICOIN_EMOJI} ⋮ **__${job.name.toLowerCase()} shift!__**\n\n` +
+              `${task.question}\n\n` +
+              '♡ choose an answer within **30 seconds**!'
+            ),
+          ],
+          components: [row],
+        });
+
         try {
-          const click = await response.awaitMessageComponent({ time: TIME_LIMIT, filter: i => i.user.id === userId && i.customId.startsWith(`cw:${session}:`) });
-          correct = Number(click.customId.split(':')[2]) === task.correct;
-          await click.deferUpdate();
+          const clicked = await message.awaitMessageComponent({
+            time: TIME_LIMIT,
+            filter: button =>
+              button.user.id === userId &&
+              button.customId.startsWith(`cw:${sessionId}:`),
+          });
+
+          correct =
+            Number(clicked.customId.split(':')[2]) === task.correct;
+
+          await clicked.deferUpdate();
         } catch {
-          const expired = await getEconomyData(client, guildId, userId);
-          if (expired.workPendingUntil === now + TIME_LIMIT + 10_000) {
-            expired.workPendingUntil = 0;
-            await setEconomyData(client, guildId, userId, expired);
-          }
-          await interaction.editReply({ embeds: [embed('☁️ shift expired', 'you ran out of time! no unicoins were awarded.')], components: [] });
+          await interaction.editReply({
+            embeds: [
+              makeEmbed(
+                `## ${UNICOIN_EMOJI} ⋮ **__shift expired!__**\n\n` +
+                '♡ time ran out! no Unicoins were awarded.'
+              ),
+            ],
+            components: [],
+          });
           return;
         }
       }
-      const earnedBase = mode === 'quick' ? Math.floor(pay * .7) : correct ? Math.floor(pay * 1.1) : Math.floor(pay * .5);
-      const rank = careerRank(user.careerShifts || 0);
-      const earned = Math.floor(earnedBase * (1 + rank.bonus));
-      const xp = mode === 'quick' ? 10 : correct ? 30 : 10;
-      const latest = await getEconomyData(client, guildId, userId);
-      // A timed-out reservation cannot be completed after another shift has started.
-      if (latest.workPendingUntil !== now + TIME_LIMIT + 10_000) {
-        return await interaction.editReply({ embeds: [embed('☁️ shift cancelled', 'your shift reservation changed. no unicoins were awarded.')], components: [] });
-      }
-      latest.wallet = (latest.wallet || 0) + earned;
-      latest.lastWork = Date.now();
-      latest.workPendingUntil = 0;
-      latest.careerXp = (latest.careerXp || 0) + xp;
-      latest.careerShifts = (latest.careerShifts || 0) + 1;
-      latest.workDay = today;
-      latest.workDayCount = shiftsToday + 1;
-      if (!await setEconomyData(client, guildId, userId, latest)) {
-        return await interaction.editReply({ embeds: [embed('☁️ save failed', 'your shift could not be saved. contact staff if this persists.')], components: [] });
-      }
-      const result = mode === 'quick' ? 'quick shift completed!' : correct ? 'perfect shift!' : 'shift completed — reduced pay!';
-      await interaction.editReply({ embeds: [embed(`🎀 ⋮ ${result}`, `${job.emoji} **${job.name}** · ${rank.name}\n\n💗 **+${earned.toLocaleString()} unicoins**\n✨ **+${xp} career XP**\n♡ wallet: **${latest.wallet.toLocaleString()} unicoins**\n♡ next shift: <t:${Math.ceil((latest.lastWork + COOLDOWN) / 1000)}:R>`) ], components: [] });
+
+      const careerXp =
+        mode === 'quick' ? 10 : correct ? 30 : 10;
+
+      // The database transaction handles:
+      // wallet, career XP, cooldown, daily caps and ledger.
+      // CUNVRS_WORK_IDEMPOTENCY_V1
+      const result = await awardWorkShift(pool, {
+        guildId,
+        userId,
+        interactionId: interaction.id,
+        job,
+        mode,
+        correct,
+        basePay,
+        careerXp,
+      });
+
+      const outcome =
+        mode === 'quick'
+          ? 'quick shift completed!'
+          : correct
+            ? 'perfect shift!'
+            : 'shift completed!';
+
+      const description =
+        `## ${UNICOIN_EMOJI} ⋮ **__${outcome}__**\n\n` +
+        `${job.emoji} **${job.name}** · ${result.rank}\n\n` +
+        `${UNICOIN_EMOJI} **earned:** ${formatUnicoins(result.earned)}\n` +
+        `✨ **career XP:** +${careerXp}\n` +
+        `♡ **wallet:** ${formatUnicoins(result.wallet)}\n` +
+        `♡ **shifts today:** ${result.shiftsToday}/10\n` +
+        `♡ **daily earnings:** ${formatUnicoins(result.dailyEarned)} / 5,000\n` +
+        `♡ **next shift:** <t:${Math.ceil(result.nextWork / 1000)}:R>` +
+        (result.dailyCapReached
+          ? '\n\n♡ you reached your daily earning limit!'
+          : '');
+
+      await interaction.editReply({
+        embeds: [makeEmbed(description)],
+        components: [],
+      });
     } catch (error) {
       console.error('[CUNVRS WORK]', error);
-      const payload = { embeds: [embed('☁️ shift error', 'something went wrong. please try again later!')], components: [], ephemeral: true };
-      if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-      else await interaction.reply(payload).catch(() => {});
+
+      const payload = {
+        embeds: [
+          makeEmbed(
+            `## ${UNICOIN_EMOJI} ⋮ **__shift unsuccessful!__**\n\n` +
+            `♡ ${formatError(error)}`
+          ),
+        ],
+        components: [],
+      };
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(payload).catch(() => {});
+      } else {
+        await interaction.reply({
+          ...payload,
+          ephemeral: true,
+        }).catch(() => {});
+      }
     } finally {
-      locks.delete(key);
+      activeShifts.delete(key);
     }
   },
 };

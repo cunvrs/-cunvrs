@@ -1,3 +1,12 @@
+import { handleNativeCloseRequest } from '../services/redemptions/nativeCloseInteraction.js';
+import { handleNativeCloseFinalConfirmation } from '../services/redemptions/nativeCloseFinalInteraction.js';
+// CUNVRS_CLOSE_ROUTER_IMPORT_V1
+import { handleNativeRedemptionActionButton } from '../services/redemptions/nativeActionButtonInteraction.js';
+import { handleNativeRedemptionSelection } from '../services/redemptions/nativeSelectInteraction.js';
+import { handleNativeRedemptionConfirmation } from '../services/redemptions/nativeConfirmInteraction.js';
+import { handleNativeDeliverySelection, handleNativeDeliverySubmission } from '../services/redemptions/nativeDeliveryInteraction.js';
+import { handleNativeRedemptionClaim } from '../services/redemptions/nativeClaimInteraction.js';
+import { createNativeRedemptionTicket } from '../services/redemptions/nativeTicketService.js';
 import { Events, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
@@ -185,7 +194,7 @@ export default {
           }
 
           const focusedOption = interaction.options.getFocused(true);
-          
+
           if (interaction.commandName === 'apply' && focusedOption.name === 'application') {
             try {
               const { getApplicationRoles } = await import('../utils/database.js');
@@ -193,10 +202,10 @@ export default {
               const roleName = interaction.options.getString('application', false);
 
               const filtered = roles.filter(role =>
-                role.enabled !== false && 
+                role.enabled !== false &&
                 role.name.toLowerCase().startsWith(roleName?.toLowerCase() || '')
               );
-              
+
               await interaction.respond(
                 filtered.slice(0, 25).map(role => ({
                   name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,
@@ -220,7 +229,7 @@ export default {
               const filtered = roles.filter(role =>
                 role.name.toLowerCase().startsWith(appName?.toLowerCase() || '')
               );
-              
+
               await interaction.respond(
                 filtered.slice(0, 25).map(role => ({
                   name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,
@@ -240,9 +249,9 @@ export default {
               const { getAllReactionRoleMessages, deleteReactionRoleMessage } = await import('../services/reactionRoleService.js');
               const guildId = interaction.guildId;
               const guild = interaction.guild;
-              
+
               let panels = await getAllReactionRoleMessages(client, guildId);
-              
+
               if (!panels || panels.length === 0) {
                 await interaction.respond([]);
                 return;
@@ -253,13 +262,13 @@ export default {
                 if (!panel.messageId || !panel.channelId) {
                   continue;
                 }
-                
+
                 const channel = guild.channels.cache.get(panel.channelId);
                 if (!channel) {
                   await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
                   continue;
                 }
-                
+
                 const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
                 if (!msg) {
                   await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
@@ -267,24 +276,24 @@ export default {
                 }
                 validPanels.push(panel);
               }
-              
+
               if (validPanels.length === 0) {
                 await interaction.respond([]);
                 return;
               }
-              
+
               const choices = await Promise.all(
                 validPanels.slice(0, 25).map(async panel => {
                   try {
                     const channel = guild.channels.cache.get(panel.channelId);
                     if (!channel) return null;
-                    
+
                     const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
                     if (!msg) return null;
-                    
+
                     const title = msg?.embeds?.[0]?.title ?? 'Untitled Panel';
                     const channelName = channel?.name ?? 'unknown';
-                    
+
                     return {
                       name: `${title} (${channelName})`.substring(0, 100),
                       value: panel.messageId
@@ -294,7 +303,7 @@ export default {
                   }
                 })
               );
-              
+
               const validChoices = choices.filter(c => c !== null);
               await interaction.respond(validChoices);
             } catch (error) {
@@ -307,6 +316,81 @@ export default {
             }
           }
         } else if (interaction.isButton()) {
+          // // CUNVRS_CLOSE_ROUTER_V1
+          if (interaction.customId === 'cunvrs_redemption_close') {
+            return await handleNativeCloseRequest(interaction);
+          }
+
+          if (
+            interaction.customId === 'cunvrs_redemption_close_confirm' ||
+            interaction.customId === 'cunvrs_redemption_close_cancel'
+          ) {
+            return await handleNativeCloseFinalConfirmation(interaction);
+          }
+
+
+          // CUNVRS_NATIVE_ROUTER_V1
+          if (
+            interaction.customId === 'cunvrs_redemption_cancel' ||
+            interaction.customId.startsWith('cunvrs_redemption_confirm_')
+          ) {
+            return await handleNativeRedemptionConfirmation(interaction);
+          }
+
+          if (
+            ['cunvrs_redemption_approve',
+             'cunvrs_redemption_decline',
+             'cunvrs_redemption_deliver'].includes(interaction.customId)
+          ) {
+            return await handleNativeRedemptionActionButton(interaction);
+          }
+
+
+
+          if (interaction.customId === 'cunvrs_redemption_claim') {
+            return await handleNativeRedemptionClaim(interaction);
+          }
+
+          if (interaction.customId === 'cunvrs_redeem_open') {
+            try {
+              await interaction.deferReply({
+                flags: MessageFlags.Ephemeral
+              });
+
+              const result = await createNativeRedemptionTicket(
+                interaction
+              );
+
+              return await interaction.editReply({
+                content: result.created
+                  ? 'Your private redemption ticket is ready: <#' +
+                    result.channelId + '>'
+                  : 'You already have a redemption ticket: <#' +
+                    result.channelId + '>',
+                allowedMentions: { parse: [] }
+              });
+            } catch (error) {
+              logger.error('Native redemption ticket error:', error);
+
+              const message = {
+                content:
+                  'Unable to open a redemption ticket right now. ' +
+                  'Please contact staff.',
+                flags: MessageFlags.Ephemeral
+              };
+
+              if (interaction.deferred || interaction.replied) {
+                return await interaction.editReply({
+                  content: message.content
+                }).catch(() => {});
+              }
+
+              return await interaction.reply(message)
+                .catch(() => {});
+            }
+          }
+
+
           if (interaction.customId.startsWith('shared_todo_')) {
             const parts = interaction.customId.split('_');
             const buttonType = parts.slice(0, 3).join('_');
@@ -338,7 +422,11 @@ export default {
           const button = client.buttons.get(customId);
 
           if (!button) {
-            if (!interaction.customId.includes(':') || isCollectorManagedComponent(customId)) {
+            if (
+              !interaction.customId.includes(':') ||
+              isCollectorManagedComponent(customId) ||
+              customId === 'ct'
+            ) {
               return;
             }
 
@@ -359,12 +447,25 @@ export default {
               handler: 'general'
             }, interactionTraceContext));
           }
+
         } else if (interaction.isStringSelectMenu()) {
+          if (interaction.customId === 'cunvrs_redemption_select_deliver') {
+            return await handleNativeDeliverySelection(interaction);
+          }
+
+          if (interaction.customId.startsWith('cunvrs_redemption_select_')) {
+            return await handleNativeRedemptionSelection(interaction);
+          }
+
           const [customId, ...args] = interaction.customId.split(':');
           const selectMenu = client.selectMenus.get(customId);
 
           if (!selectMenu) {
-            if (!interaction.customId.includes(':') || isCollectorManagedComponent(customId)) {
+            if (
+              !interaction.customId.includes(':') ||
+              isCollectorManagedComponent(customId) ||
+              customId === 'ch'
+            ) {
               return;
             }
 
@@ -385,6 +486,10 @@ export default {
             }, interactionTraceContext));
           }
         } else if (interaction.isModalSubmit()) {
+          if (interaction.customId.startsWith('cunvrs_redemption_delivery_modal_')) {
+            return await handleNativeDeliverySubmission(interaction);
+          }
+
           if (interaction.customId.startsWith('app_modal_')) {
             try {
               await handleApplicationModal(interaction);
