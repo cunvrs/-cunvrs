@@ -1,6 +1,9 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
 import { getPaymentPool } from './modules/paymentHandler.js';
 import { UNICOIN_EMOJI } from '../../utils/wallet.js';
+import { requestRedemption } from '../../services/redemptions/redemptionService.js';
+import { sendRedemptionLog } from '../../services/redemptions/redemptionLogs.js';
+import { REDEMPTION_TICKET_CONFIG } from '../../services/redemptions/ticketConfig.js';
 import {
   CUNVRS_SHOP_CATALOG,
   CUNVRS_SHOP_CATEGORIES,
@@ -19,7 +22,7 @@ const categoryChoices = Object.entries(CUNVRS_SHOP_CATEGORIES)
 
 function embed(description) {
   return new EmbedBuilder().setColor(PINK).setDescription(description)
-    .setFooter({ text: 'cunvrs. shop · preview only · rewards not on sale' });
+    .setFooter({ text: 'cunvrs. shop · staff fulfillment' });
 }
 
 const formatPrice = price => price === null
@@ -37,21 +40,21 @@ function inventoryFromData(data) {
 export default {
   data: new SlashCommandBuilder()
     .setName('shop')
-    .setDescription('Browse the upcoming cunvrs. reward shop')
+    .setDescription('Browse and purchase cunvrs. rewards')
     .setDMPermission(false)
     .addSubcommand(sub => sub.setName('browse')
-      .setDescription('Browse the preview catalog')
+      .setDescription('Browse the reward catalog')
       .addStringOption(opt => opt.setName('category')
         .setDescription('Which type of rewards?')
         .addChoices(...categoryChoices)))
     .addSubcommand(sub => sub.setName('item')
-      .setDescription('See an item and its proposed price')
+      .setDescription('See an item and its price')
       .addStringOption(opt => opt.setName('reward')
         .setDescription('Select a reward')
         .setRequired(true)
         .addChoices(...rewardChoices)))
     .addSubcommand(sub => sub.setName('buy')
-      .setDescription('Check whether purchases are currently enabled')
+      .setDescription('Reserve Unicoins for a reward in your redemption ticket')
       .addStringOption(opt => opt.setName('item')
         .setDescription('Select a reward')
         .setRequired(true)
@@ -83,7 +86,7 @@ export default {
           embeds.push(embed(
             `## 🎀 ⋮ **__${title}__**\n\n` +
             lines.slice(i,i+chunkSize).join('\n') +
-            '\n\n-# ♡ proposed prices · purchases currently disabled'
+            '\n\n-# ♡ use /shop buy in your redemption ticket'
           ));
         }
         await interaction.editReply({ embeds });
@@ -93,12 +96,52 @@ export default {
         const id = interaction.options.getString(sub === 'item' ? 'reward' : 'item');
         const item = getCatalogItem(id);
         if (!item) throw new Error('Invalid shop item.');
+        if (sub === 'buy') {
+          if (!item.enabled) {
+            await interaction.editReply({ content: 'Ask staff for a quote for this reward.' });
+            return;
+          }
+          if (process.env.CUNVRS_REDEMPTIONS_ENABLED !== 'true') {
+            await interaction.editReply({ content: 'Shop purchases are temporarily unavailable.' });
+            return;
+          }
+          if (interaction.channel?.type !== ChannelType.GuildText ||
+              interaction.channel.parentId !== REDEMPTION_TICKET_CONFIG.categoryId) {
+            await interaction.editReply({
+              content: `Open a ticket in <#${REDEMPTION_TICKET_CONFIG.panelChannelId}> and use /shop buy inside it.`,
+            });
+            return;
+          }
+          const result = await requestRedemption({
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+            userId: interaction.user.id,
+            interactionId: interaction.id,
+            itemCode: item.id,
+            storefront: true,
+          });
+          if (!result.success) {
+            await interaction.editReply({ content: result.reason });
+            return;
+          }
+          await interaction.editReply({
+            content: `**${result.itemName}** requested. ${result.reserved.toLocaleString('en-US')} Unicoins reserved pending staff approval.\n` +
+              `Request ID: \`${result.redemptionId}\``,
+          });
+          await sendRedemptionLog(interaction, {
+            action: 'Shop redemption requested',
+            userId: interaction.user.id,
+            redemptionId: result.redemptionId,
+            reward: result.itemName,
+            amount: result.reserved,
+          });
+          return;
+        }
         await interaction.editReply({ embeds: [embed(
           `## 🎀 ⋮ **__${item.name}__**\n\n` +
           `${formatPrice(item.price)}\n` +
           `♡ category: **${CUNVRS_SHOP_CATEGORIES[item.category]}**\n` +
-          '♡ status: **awaiting approval**\n\n' +
-          'This is a catalog preview. No Unicoins or Shop Tokens have been deducted.'
+          (item.enabled ? 'Use /shop buy in your redemption ticket.' : 'Contact staff for a quote.')
         )] });
         return;
       }
@@ -119,7 +162,7 @@ export default {
     } catch (error) {
       console.error('[CUNVRS V2 SHOP]', error);
       await interaction.editReply({ content:
-        '♡ shop preview unavailable. Please try again later.' }).catch(()=>{});
+        '♡ shop unavailable. Please try again later.' }).catch(()=>{});
     }
   },
 };

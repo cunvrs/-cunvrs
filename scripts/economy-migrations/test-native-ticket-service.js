@@ -132,7 +132,7 @@ try {
   const staffPanel = channel.sentMessages[1];
 
   assert.match(welcome.content, /redemption ticket/i);
-  assert.match(welcome.content, /economy redeem/i);
+  assert.match(welcome.content, /\/shop buy/i);
 
   assert.equal(staffPanel.embeds.length, 1);
   assert.equal(staffPanel.components.length, 1);

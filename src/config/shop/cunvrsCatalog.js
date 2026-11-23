@@ -1,5 +1,4 @@
-// Economy 2.0 proposed storefront. Prices are display-only pending owner review.
-// Do not connect these items to charge, reserve, or fulfillment code until approved.
+// Approved storefront. A null price requires a staff quote.
 const raw = [
   ['extra_charm','Extra Charm',5000,'ugc'],
   ['custom_charm','Custom Charm',10000,'ugc'],
@@ -33,11 +32,7 @@ export const CUNVRS_SHOP_CATEGORIES = Object.freeze({
 });
 
 export const CUNVRS_SHOP_CATALOG = Object.freeze(raw.map(([id,name,price,category]) =>
-  Object.freeze({ id, name, price, category, enabled: false,
-    // Not all item categories map to a token. Assign per-item after rules are approved.
-    requiredToken: null,
-    approvalStatus: 'pending_review',
-  })
+  Object.freeze({ id, name, price, category, enabled: price !== null })
 ));
 
 export function getCatalogItem(id) {

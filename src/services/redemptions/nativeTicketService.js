@@ -208,7 +208,7 @@ export async function createNativeRedemptionTicket(interaction, options = {}) {
       content:
         `## 🎀 ⋮ __redemption ticket!__\n\n` +
         `welcome <@${user.id}>!\n\n` +
-        `♡ use **/economy redeem** to request a reward.\n` +
+        `♡ use **/shop buy** to request a shop reward.\n` +
         `♡ staff will review your request.\n` +
         `♡ keep your ticket open until fulfillment is complete.`,
       allowedMentions: {

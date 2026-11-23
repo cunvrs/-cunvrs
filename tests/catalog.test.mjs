@@ -6,7 +6,7 @@ import {
   CUNVRS_SHOP_CATEGORIES as categories,
 } from '../src/config/shop/cunvrsCatalog.js';
 
-test('the preview catalog contains 23 unique rewards pending approval', () => {
+test('the approved catalog has 22 fixed-price rewards and one staff-quoted reward', () => {
   assert.equal(items.length, 23);
   assert.equal(new Set(items.map(item => item.id)).size, 23);
   const counts = Object.fromEntries(Object.keys(categories).map(category => [
@@ -14,8 +14,7 @@ test('the preview catalog contains 23 unique rewards pending approval', () => {
   ]));
   assert.deepEqual(counts, { ugc: 9, robux: 5, discord: 9 });
   for (const item of items) {
-    assert.equal(item.enabled, false);
-    assert.equal(item.requiredToken, null);
+    assert.equal(item.enabled, item.price !== null);
     assert.ok(item.price === null || (Number.isSafeInteger(item.price) && item.price > 0));
   }
 });
@@ -31,7 +30,7 @@ async function runShop(subcommand, options = {}) {
     deferReply: async () => {},
     editReply: async payload => { reply = payload; },
   });
-  return reply.embeds.map(embed => embed.toJSON().description).join('\n');
+  return reply.content ?? reply.embeds.map(embed => embed.toJSON().description).join('\n');
 }
 
 test('browse displays all rewards and can filter by category', async () => {
@@ -43,14 +42,27 @@ test('browse displays all rewards and can filter by category', async () => {
   }
 });
 
-test('registered item and buy options lead to read-only preview replies', async () => {
+test('both commands list all rewards and direct quote-only purchases to staff', async () => {
   const command = shop.data.toJSON();
   for (const [subcommand, option] of [['item', 'reward'], ['buy', 'item']]) {
     const registered = command.options.find(entry => entry.name === subcommand);
     assert.deepEqual(registered.options[0].choices.map(choice => choice.value),
       items.map(item => item.id));
-    const reply = await runShop(subcommand, { [option]: 'premium_reward_20_plus' });
-    assert.match(reply, /Price requires staff review/);
-    assert.match(reply, /awaiting approval/);
+  }
+  const item = await runShop('item', { reward: 'premium_reward_20_plus' });
+  assert.match(item, /Price requires staff review/);
+  const purchase = await runShop('buy', { item: 'premium_reward_20_plus' });
+  assert.match(purchase, /Ask staff for a quote/);
+});
+
+test('fixed-price purchases require a redemption ticket', async () => {
+  const prior = process.env.CUNVRS_REDEMPTIONS_ENABLED;
+  process.env.CUNVRS_REDEMPTIONS_ENABLED = 'true';
+  try {
+    const reply = await runShop('buy', { item: 'robux_50' });
+    assert.match(reply, /Open a ticket/);
+  } finally {
+    if (prior === undefined) delete process.env.CUNVRS_REDEMPTIONS_ENABLED;
+    else process.env.CUNVRS_REDEMPTIONS_ENABLED = prior;
   }
 });

@@ -28,7 +28,8 @@ const files = [
   [1, '001_economy_foundation.sql'],
   [2, '002_native_redemption_claims.sql'],
   [3, '003_native_redemption_closures.sql'],
-  [4, '004_native_redemption_deleting_state.sql']
+  [4, '004_native_redemption_deleting_state.sql'],
+  [5, '005_unicoin_shop_redemptions.sql']
 ];
 
 const specifications = {
@@ -288,10 +289,11 @@ try {
     ledger.rows.map(row => [Number(row.version), row])
   );
 
-  // Existing migrations 003 and 004 must match their files.
+  // Migrations 003 and 004 are required, and 005 is checked when tracked.
   // This script never applies or changes them.
   for (const source of migrations.slice(2)) {
     const row = recorded.get(source.version);
+    if (!row && source.version === 5) continue;
 
     assert.ok(
       row,
@@ -345,7 +347,7 @@ try {
   }
 
   for (const source of migrations.slice(2)) {
-    console.log('TRACKED:', source.filename);
+    if (recorded.has(source.version)) console.log('TRACKED:', source.filename);
   }
 
   if (mode === 'status') {

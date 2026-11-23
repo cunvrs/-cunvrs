@@ -1,6 +1,7 @@
 
 import { createHash } from 'node:crypto';
 import { getPaymentPool } from '../../commands/Economy/modules/paymentHandler.js';
+import { getCatalogItem } from '../../config/shop/cunvrsCatalog.js';
 
 export const REDEMPTION_CATALOG = Object.freeze({
   ugc_reward: Object.freeze({
@@ -182,12 +183,13 @@ export async function requestRedemption({
   userId,
   interactionId,
   itemCode,
+  storefront = false,
 }) {
   for (const id of [
     guildId, channelId, userId, interactionId
   ]) checkId(id);
 
-  const item = REDEMPTION_CATALOG[itemCode];
+  const item = storefront ? getCatalogItem(itemCode) : REDEMPTION_CATALOG[itemCode];
 
   if (!item?.enabled) {
     return { success: false, reason: 'Reward unavailable.' };
@@ -285,7 +287,7 @@ await ensureAccount(db, guildId, userId);
                'pending_approval',$8::jsonb)`,
       [
         id, guildId, userId, channelId, itemCode,
-        item.type, item.price,
+        storefront ? null : item.type, item.price,
         JSON.stringify({
           itemName: item.name,
           history: [{

@@ -16,7 +16,8 @@ if (mode === 'apply' && confirm !== '--confirm-local') {
 const base = new URL('./', import.meta.url);
 const migrations = [
   [3, '003_native_redemption_closures.sql'],
-  [4, '004_native_redemption_deleting_state.sql']
+  [4, '004_native_redemption_deleting_state.sql'],
+  [5, '005_unicoin_shop_redemptions.sql']
 ];
 
 const ledger = 'cunvrs_economy_migrations';
@@ -115,6 +116,23 @@ async function recordedMigrations() {
     result.rows.map(row => [Number(row.version), row])
   );
 }
+
+async function allowsUnicoinOnlyRedemptions() {
+  const { rows } = await db.query(`
+    SELECT is_nullable
+    FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='cunvrs_redemptions'
+      AND column_name='ticket_type'
+  `);
+  return rows[0]?.is_nullable === 'YES';
+}
+
+const schemaChecks = {
+  3: closingStructureValid,
+  4: hasDeletingState,
+  5: allowsUnicoinOnlyRedemptions
+};
 
 function migrationSource(filename) {
   const content = fs.readFileSync(
@@ -216,12 +234,8 @@ try {
       continue;
     }
 
-    const structureValid = await closingStructureValid();
-    const deletingValid = await hasDeletingState();
-
-    const alreadyApplied = source.version === 3
-      ? structureValid
-      : deletingValid;
+    const checkSchema = schemaChecks[source.version];
+    const alreadyApplied = await checkSchema();
 
     if (mode === 'status') {
       console.log(
@@ -241,7 +255,7 @@ try {
         );
       }
 
-      if (source.version === 4 && !structureValid) {
+      if (source.version === 4 && !await closingStructureValid()) {
         throw new Error(
           'Closing table prerequisites missing.'
         );
@@ -256,11 +270,7 @@ try {
       );
     }
 
-    const verified = source.version === 3
-      ? await closingStructureValid()
-      : await hasDeletingState();
-
-    if (!verified) {
+    if (!await checkSchema()) {
       throw new Error(
         'Post-migration verification failed: ' +
         source.filename
