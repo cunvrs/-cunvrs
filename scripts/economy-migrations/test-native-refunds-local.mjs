@@ -193,24 +193,16 @@ try {
     /Manage Server permission required/i
   );
 
-  await assert.rejects(
-    () => transitionRedemption({
-      ...base,
-      staffId: ownerId
-    }),
-    /Staff cannot process their own redemption/i
-  );
-
   assert.equal(Number((await wallet()).balance), initialWallet);
   assert.equal((await refunds()).length, 0);
 
   console.log('PASS: Invalid declines cannot refund Unicoins.');
 
-  // Two authorized staff members decline simultaneously.
+  // The owner-manager and another manager cannot refund the same hold twice.
   const results = await Promise.all([
     transitionRedemption({
       ...base,
-      staffId: staffA
+      staffId: ownerId
     }),
     transitionRedemption({
       ...base,
@@ -267,6 +259,7 @@ try {
   // An already-approved redemption may also be declined.
   const approvedDecline = await transitionRedemption({
     ...base,
+    staffId: ownerId,
     redemptionId: approvedId
   });
 

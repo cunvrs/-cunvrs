@@ -1,7 +1,11 @@
 import { randomInt } from 'node:crypto';
-import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import {
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType,
+  EmbedBuilder, MessageFlags, SlashCommandBuilder,
+} from 'discord.js';
+import { logger } from '../../utils/logger.js';
 
-const symbols = ['🎀', '🍓', '🌙', '🧁', '✨'];
+const symbols = ['🎀 Ribbon', '🍓 Berry', '🌙 Moon', '🧁 Cupcake', '✨ Star'];
 const fortunes = [
   'A tiny win is waiting in a place you usually scroll past.',
   'Your luck improves after a snack break.',
@@ -16,6 +20,41 @@ const addStake = sub => sub.addIntegerOption(option => option
   .setMinValue(1)
   .setMaxValue(100));
 
+const games = {
+  slots: { title: '🎰 Ribbon Reels', prompt: 'Match two symbols for 2× or three for 6×.', buttons: [['spin', 'Spin the reels', '🎰']] },
+  coinflip: { title: '🪙 Moon & Ribbon', prompt: 'Choose a side and flip the coin.', buttons: [['moon', 'Moon', '🌙'], ['ribbon', 'Ribbon', '🎀']] },
+  highlow: { title: '🃏 Lucky Seven', prompt: 'Your starting card is **7**. Will the next card be higher or lower?', buttons: [['high', 'Higher', '⬆️'], ['low', 'Lower', '⬇️']] },
+  fortune: { title: '🥠 Your tiny fortune', prompt: 'A warm cookie is waiting for you.', buttons: [['open', 'Crack the cookie', '🥠']] },
+};
+
+function card(title, description, footer) {
+  return new EmbedBuilder({ color: 0xFFEDF4, title, description, footer: { text: footer } });
+}
+
+function play(game, pick, stake) {
+  let multiplier;
+  let result;
+  if (game === 'fortune') return fortunes[randomInt(fortunes.length)];
+  if (game === 'slots') {
+    const reels = Array.from({ length: 3 }, () => symbols[randomInt(symbols.length)]);
+    const unique = new Set(reels).size;
+    multiplier = unique === 1 ? 6 : unique === 2 ? 2 : 0;
+    result = reels.join('  │  ');
+  } else if (game === 'coinflip') {
+    const side = randomInt(2) === 0 ? 'moon' : 'ribbon';
+    multiplier = pick === side ? 2 : 0;
+    result = side === 'moon' ? '🌙 The coin landed on **Moon**!' : '🎀 The coin landed on **Ribbon**!';
+  } else {
+    const draw = randomInt(1, 14);
+    multiplier = draw === 7 ? 1 : (draw > 7) === (pick === 'high') ? 2 : 0;
+    result = `🃏 Starting card **7** → drawn card **${draw}**`;
+  }
+  const change = stake * (multiplier - 1);
+  const score = change === 0 ? '♡ Tie! Your stake is returned.' :
+    `♡ **${change > 0 ? '+' : '−'}${Math.abs(change)} play points**`;
+  return `${result}\n\n${score}`;
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('arcade')
@@ -26,67 +65,64 @@ export default {
       .setDescription('Call the moon or the ribbon')
       .addStringOption(option => option.setName('pick')
         .setDescription('Which side will land face up?')
-        .setRequired(true)
         .addChoices({ name: '🌙 Moon', value: 'moon' }, { name: '🎀 Ribbon', value: 'ribbon' }))))
     .addSubcommand(sub => addStake(sub.setName('highlow')
       .setDescription('Guess whether the next card beats a seven')
       .addStringOption(option => option.setName('pick')
         .setDescription('Call higher or lower than 7')
-        .setRequired(true)
         .addChoices({ name: 'Higher', value: 'high' }, { name: 'Lower', value: 'low' }))))
     .addSubcommand(sub => sub.setName('fortune')
       .setDescription('Open a tiny fortune cookie')),
 
   async execute(interaction) {
     const game = interaction.options.getSubcommand();
-    const card = new EmbedBuilder().setColor(0xFFEDF4);
-
-    if (game === 'fortune') {
-      card.setTitle('🥠 Your tiny fortune')
-        .setDescription(fortunes[randomInt(fortunes.length)]);
-      await interaction.reply({ embeds: [card] });
-      return;
-    }
-
-    const stake = interaction.options.getInteger('stake') ?? 10;
-    if (!Number.isSafeInteger(stake) || stake < 1 || stake > 100) {
+    const { title, prompt, buttons } = games[game];
+    const stake = game === 'fortune' ? 0 : interaction.options.getInteger('stake') ?? 10;
+    if (game !== 'fortune' && (!Number.isSafeInteger(stake) || stake < 1 || stake > 100)) {
       await interaction.reply({ content: '♡ Pick a stake between 1 and 100 play points.' });
       return;
     }
 
-    let multiplier;
-    let result;
-    if (game === 'slots') {
-      const reels = Array.from({ length: 3 }, () => symbols[randomInt(symbols.length)]);
-      const unique = new Set(reels).size;
-      multiplier = unique === 1 ? 6 : unique === 2 ? 2 : 0;
-      result = reels.join('  │  ');
-      card.setTitle('🎰 Ribbon Reels');
-    } else {
-      const pick = interaction.options.getString('pick')?.toLowerCase();
-      const choices = game === 'coinflip' ? ['moon', 'ribbon'] : ['high', 'low'];
-      if (!choices.includes(pick)) {
-        await interaction.reply({ content: `♡ Pick ${choices.join(' or ')}.` });
-        return;
-      }
-      if (game === 'coinflip') {
-        const side = choices[randomInt(choices.length)];
-        multiplier = pick === side ? 2 : 0;
-        result = side === 'moon' ? '🌙 **Moon**' : '🎀 **Ribbon**';
-        card.setTitle('🪙 Moon & Ribbon');
-      } else {
-        const draw = randomInt(1, 14);
-        multiplier = draw === 7 ? 1 : (draw > 7) === (pick === 'high') ? 2 : 0;
-        result = `Starting card **7** · next card **${draw}**`;
-        card.setTitle('🃏 Lucky Seven');
-      }
+    const preselected = buttons.length > 1 ? interaction.options.getString('pick')?.toLowerCase() : null;
+    const choices = preselected ? buttons.filter(([id]) => id === preselected) : buttons;
+    if (!choices.length) {
+      await interaction.reply({ content: `♡ Pick ${buttons.map(([id]) => id).join(' or ')}.` });
+      return;
     }
-
-    const change = stake * (multiplier - 1);
-    const score = change === 0 ? '♡ Tie! Your stake is returned.' :
-      `♡ ${change > 0 ? '+' : '−'}${Math.abs(change)} play points`;
-    card.setDescription(`${result}\n\n${score}`)
-      .setFooter({ text: 'Round score only · play points reset each round' });
-    await interaction.reply({ embeds: [card] });
+    const prefix = `arcade:${interaction.id}:`;
+    const row = new ActionRowBuilder().addComponents(choices.map(([id, label, emoji]) =>
+      new ButtonBuilder().setCustomId(prefix + id).setLabel(label).setEmoji(emoji).setStyle(ButtonStyle.Secondary)
+    ));
+    const summary = stake ? `\n\n♡ Stake: **${stake} play points**` : '';
+    await interaction.reply({
+      embeds: [card(title, prompt + summary, 'Pick a button within 60 seconds')],
+      components: [row],
+    });
+    const message = await interaction.fetchReply();
+    const collector = message.createMessageComponentCollector({
+      componentType: ComponentType.Button,
+      time: 60_000,
+      max: 1,
+      filter(button) {
+        if (!choices.some(([id]) => button.customId === prefix + id)) return false;
+        if (button.user.id === interaction.user.id) return true;
+        void button.reply({ content: '♡ Start your own round with /arcade.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return false;
+      },
+    });
+    collector.on('collect', button => {
+      const result = play(game, button.customId.slice(prefix.length), stake);
+      void button.update({
+        embeds: [card(title, result, 'Round complete · play points reset each round')],
+        components: [],
+      }).catch(error => logger.warn('Could not display arcade result', { error: error.message }));
+    });
+    collector.on('end', collected => {
+      if (collected.size) return;
+      void interaction.editReply({
+        embeds: [card(title, '♡ This round closed. Start another with /arcade.', 'Round expired')],
+        components: [],
+      }).catch(() => {});
+    });
   },
 };

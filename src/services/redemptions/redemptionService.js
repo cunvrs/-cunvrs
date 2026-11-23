@@ -420,7 +420,7 @@ if (record.channel_id !== channelId) {
       };
     }
 
-    if (record.user_id === staffId) {
+    if (record.user_id === staffId && action !== 'decline') {
       throw new Error('Staff cannot process their own redemption.');
     }
 

@@ -64,6 +64,7 @@ export function createMockInteraction(message, commandData, args) {
     },
 
     channel: message.channel,
+    channelId: message.channelId ?? message.channel?.id,
     guild: message.guild,
     guildId: message.guild?.id,
 
@@ -72,6 +73,7 @@ export function createMockInteraction(message, commandData, args) {
     id: message.id,
 
     options: {
+      _positional: options._positional,
       get: (name) => options.get(name),
       getString: (name) => options.getString(name),
       getUser: (name) => {

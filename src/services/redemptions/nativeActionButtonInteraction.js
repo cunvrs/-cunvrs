@@ -1,6 +1,4 @@
-﻿import { MessageFlags } from 'discord.js';
-
-import {
+﻿import {
   REDEMPTION_STAFF_BUTTONS
 } from './redemptionStaffControls.js';
 
@@ -28,9 +26,7 @@ export async function handleNativeRedemptionActionButton(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     const requests = await listNativeTicketRedemptions(

@@ -1,6 +1,4 @@
-﻿import { MessageFlags } from 'discord.js';
-
-import {
+﻿import {
   claimNativeRedemptionTicket
 } from './nativeTicketClaims.js';
 
@@ -16,9 +14,7 @@ export async function handleNativeRedemptionClaim(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     const result = await claimNativeRedemptionTicket(

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import shop from '../src/commands/Economy/shop.js';
 import { mapArgumentsToOptions, parsePrefixCommand } from '../src/utils/prefixParser.js';
+import { createMockInteraction } from '../src/utils/messageAdapter.js';
 import {
   CUNVRS_SHOP_CATALOG as items,
   CUNVRS_SHOP_CATEGORIES as categories,
@@ -88,4 +89,19 @@ test('fixed-price purchases require a redemption ticket', async () => {
     if (prior === undefined) delete process.env.CUNVRS_REDEMPTIONS_ENABLED;
     else process.env.CUNVRS_REDEMPTIONS_ENABLED = prior;
   }
+});
+
+test('the Discord prefix adapter forwards the ticket ID and complete item name', () => {
+  const { args } = parsePrefixCommand('c shop buy extra charm', 'c ');
+  const interaction = createMockInteraction({
+    author: { id: 'member' },
+    guild: { id: 'guild' },
+    channel: { id: 'ticket' },
+    channelId: 'ticket',
+    id: 'message',
+    client: {},
+  }, shop.data.toJSON(), args);
+
+  assert.equal(interaction.channelId, 'ticket');
+  assert.deepEqual(interaction.options._positional, ['buy', 'extra', 'charm']);
 });

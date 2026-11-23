@@ -1,4 +1,5 @@
 ﻿import { MessageFlags } from 'discord.js';
+import { getRedemptionStaffAccess } from './redemptionStaffAuth.js';
 
 import {
   REDEMPTION_CONFIRM_PREFIX,
@@ -21,6 +22,10 @@ export async function handleNativeRedemptionConfirmation(
   options = {}
 ) {
   if (interaction.customId === REDEMPTION_CANCEL_ID) {
+    if (!getRedemptionStaffAccess(interaction).canManage) {
+      await interaction.reply({ content: 'Only redemption managers can cancel this confirmation.', flags: MessageFlags.Ephemeral });
+      return true;
+    }
     await interaction.update({
       content: '♡ redemption action cancelled. No changes made.',
       components: [],
@@ -37,9 +42,7 @@ export async function handleNativeRedemptionConfirmation(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     const match = interaction.customId.match(CONFIRM_PATTERN);
@@ -96,7 +99,8 @@ export async function handleNativeRedemptionConfirmation(
         '## 🎀 ⋮ redemption updated!\n\n' +
         `♡ **action:** ${action}\n` +
         `♡ **status:** ${result.status}\n` +
-        `♡ **request:** \`${record.id}\``,
+        `♡ **request:** \`${record.id}\`` +
+        (action === 'decline' ? `\n♡ **refunded:** ${Number(record.coins_reserved).toLocaleString('en-US')} Unicoins` : ''),
       allowedMentions: { parse: [] }
     });
 

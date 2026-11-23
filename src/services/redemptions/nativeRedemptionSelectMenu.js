@@ -42,7 +42,7 @@ export function buildNativeRedemptionSelect(action, rows) {
       throw new Error('Invalid redemption selection record.');
     }
 
-    const item = String(row.item_code ?? 'reward')
+    const item = String(row.item_name ?? row.item_code ?? 'reward')
       .replace(/[\r\n]/g, ' ')
       .slice(0, 55);
 

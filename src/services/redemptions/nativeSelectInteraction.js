@@ -31,9 +31,7 @@ export async function handleNativeRedemptionSelection(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     const action = customId.slice(

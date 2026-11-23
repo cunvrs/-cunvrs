@@ -101,9 +101,7 @@ export async function handleNativeDeliverySubmission(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     checkDeliveryAccess(interaction);

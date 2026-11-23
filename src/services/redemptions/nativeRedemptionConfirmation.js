@@ -42,7 +42,7 @@ export function buildNativeRedemptionConfirmation(action, record) {
     throw new Error('Invalid redemption amount.');
   }
 
-  const reward = String(record.item_code ?? 'reward')
+  const reward = String(record.item_name ?? record.item_code ?? 'reward')
     .replace(/[`*_~|<>\r\n@]/g, '')
     .slice(0, 60) || 'reward';
 

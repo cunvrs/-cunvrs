@@ -47,6 +47,7 @@ export async function listNativeTicketRedemptions(
     `SELECT
        r.id,
        r.item_code,
+       r.details->>'itemName' AS item_name,
        r.status,
        r.coins_reserved,
        r.requested_at

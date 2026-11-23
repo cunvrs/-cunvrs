@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChannelType } from 'discord.js';
 import { getPaymentPool } from './modules/paymentHandler.js';
 import { UNICOIN_EMOJI } from '../../utils/wallet.js';
 import { requestRedemption } from '../../services/redemptions/redemptionService.js';
@@ -20,9 +20,11 @@ const rewardChoices = CUNVRS_SHOP_CATALOG.map(({ name, id }) => ({ name, value: 
 const categoryChoices = Object.entries(CUNVRS_SHOP_CATEGORIES)
   .map(([value, name]) => ({ name, value }));
 
-function embed(description) {
-  return new EmbedBuilder().setColor(PINK).setDescription(description)
-    .setFooter({ text: 'cunvrs. shop · staff fulfillment' });
+function embed(description, title) {
+  return new EmbedBuilder({
+    color: PINK, title, description,
+    footer: { text: 'cunvrs. shop · staff fulfillment' },
+  });
 }
 
 const formatPrice = price => price === null
@@ -63,7 +65,7 @@ export default {
       .setDescription('View your existing collectibles (read-only)')),
 
   async execute(interaction) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply();
     if (!interaction.guildId) {
       await interaction.editReply({content:'♡ use the shop inside a server!'});
       return;
@@ -81,8 +83,7 @@ export default {
         const embeds = sections.map(([key, title]) => {
           const lines = CUNVRS_SHOP_CATALOG.filter(item => item.category === key)
             .map(item => `♡ **${item.name}** · ${formatPrice(item.price)}`);
-          return embed(lines.join('\n') + '\n\n-# ♡ use /shop buy in your redemption ticket')
-            .setTitle(`🎀 ${title}`);
+          return embed(lines.join('\n') + '\n\n-# ♡ use /shop buy in your redemption ticket', `🎀 ${title}`);
         });
         await interaction.editReply({ embeds });
         return;

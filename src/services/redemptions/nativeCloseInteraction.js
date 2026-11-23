@@ -1,5 +1,5 @@
 import { assertNativeStaffButtonsEnabled } from './nativeStaffButtonFlags.js';
-﻿import { ChannelType, MessageFlags } from 'discord.js';
+﻿import { ChannelType } from 'discord.js';
 
 import {
   REDEMPTION_TICKET_CONFIG
@@ -94,9 +94,7 @@ export async function handleNativeCloseRequest(
     return false;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral
-  });
+  await interaction.deferReply();
 
   try {
     assertNativeStaffButtonsEnabled("close");
