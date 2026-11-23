@@ -7,7 +7,7 @@ import { REDEMPTION_TICKET_CONFIG } from '../../services/redemptions/ticketConfi
 import {
   CUNVRS_SHOP_CATALOG,
   CUNVRS_SHOP_CATEGORIES,
-  getCatalogItem,
+  findCatalogItem,
 } from '../../config/shop/cunvrsCatalog.js';
 
 const PINK = 0xFFEDF4;
@@ -71,31 +71,30 @@ export default {
     try {
       const sub = interaction.options.getSubcommand();
       if (sub === 'browse') {
-        const category = interaction.options.getString('category');
-        const selection = category
-          ? CUNVRS_SHOP_CATALOG.filter(item => item.category === category)
-          : CUNVRS_SHOP_CATALOG;
-        const title = category ? CUNVRS_SHOP_CATEGORIES[category] : `all ${selection.length} rewards`;
-        const lines = selection.map(item =>
-          `♡ **${item.name}** · ${formatPrice(item.price)}`
-        );
-        // Split into smaller embeds to respect Discord's description length limit.
-        const chunkSize = 9;
-        const embeds = [];
-        for (let i=0; i<lines.length; i+=chunkSize) {
-          embeds.push(embed(
-            `## 🎀 ⋮ **__${title}__**\n\n` +
-            lines.slice(i,i+chunkSize).join('\n') +
-            '\n\n-# ♡ use /shop buy in your redemption ticket'
-          ));
+        const category = interaction.options.getString('category')?.toLowerCase();
+        const sections = Object.entries(CUNVRS_SHOP_CATEGORIES)
+          .filter(([key]) => !category || key === category);
+        if (!sections.length) {
+          await interaction.editReply({ content: '♡ Choose a category: ugc, robux, or discord.' });
+          return;
         }
+        const embeds = sections.map(([key, title]) => {
+          const lines = CUNVRS_SHOP_CATALOG.filter(item => item.category === key)
+            .map(item => `♡ **${item.name}** · ${formatPrice(item.price)}`);
+          return embed(lines.join('\n') + '\n\n-# ♡ use /shop buy in your redemption ticket')
+            .setTitle(`🎀 ${title}`);
+        });
         await interaction.editReply({ embeds });
         return;
       }
       if (sub === 'item' || sub === 'buy') {
-        const id = interaction.options.getString(sub === 'item' ? 'reward' : 'item');
-        const item = getCatalogItem(id);
-        if (!item) throw new Error('Invalid shop item.');
+        const input = interaction.options._positional?.slice(1).join(' ') ||
+          interaction.options.getString(sub === 'item' ? 'reward' : 'item');
+        const item = findCatalogItem(input);
+        if (!item) {
+          await interaction.editReply({ content: '♡ I couldn’t find that reward. Try /shop browse for item names.' });
+          return;
+        }
         if (sub === 'buy') {
           if (!item.enabled) {
             await interaction.editReply({ content: 'Ask staff for a quote for this reward.' });

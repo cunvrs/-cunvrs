@@ -26,9 +26,9 @@ const raw = [
 ];
 
 export const CUNVRS_SHOP_CATEGORIES = Object.freeze({
-  ugc: 'UGC & customization',
-  robux: 'Robux rewards',
-  discord: 'Discord & special rewards',
+  ugc: 'UGC Rewards',
+  robux: 'Robux Rewards',
+  discord: 'Discord Rewards',
 });
 
 export const CUNVRS_SHOP_CATALOG = Object.freeze(raw.map(([id,name,price,category]) =>
@@ -37,4 +37,12 @@ export const CUNVRS_SHOP_CATALOG = Object.freeze(raw.map(([id,name,price,categor
 
 export function getCatalogItem(id) {
   return CUNVRS_SHOP_CATALOG.find(item => item.id === id) ?? null;
+}
+
+export function findCatalogItem(input) {
+  const normalize = value => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const key = normalize(input ?? '');
+  return CUNVRS_SHOP_CATALOG.find(item =>
+    normalize(item.id) === key || normalize(item.name) === key
+  ) ?? null;
 }

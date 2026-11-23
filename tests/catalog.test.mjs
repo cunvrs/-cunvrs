@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import shop from '../src/commands/Economy/shop.js';
+import { mapArgumentsToOptions, parsePrefixCommand } from '../src/utils/prefixParser.js';
 import {
   CUNVRS_SHOP_CATALOG as items,
   CUNVRS_SHOP_CATEGORIES as categories,
@@ -19,21 +20,35 @@ test('the approved catalog has 22 fixed-price rewards and one staff-quoted rewar
   }
 });
 
-async function runShop(subcommand, options = {}) {
+async function getShopReply(commandOptions) {
   let reply;
   await shop.execute({
     guildId: 'test-guild',
-    options: {
-      getSubcommand: () => subcommand,
-      getString: name => options[name] ?? null,
-    },
+    options: commandOptions,
     deferReply: async () => {},
     editReply: async payload => { reply = payload; },
+  });
+  return reply;
+}
+
+async function runShop(subcommand, options = {}) {
+  const reply = await getShopReply({
+    getSubcommand: () => subcommand,
+    getString: name => options[name] ?? null,
   });
   return reply.content ?? reply.embeds.map(embed => embed.toJSON().description).join('\n');
 }
 
 test('browse displays all rewards and can filter by category', async () => {
+  const browse = await getShopReply({ getSubcommand: () => 'browse', getString: () => null });
+  const embeds = browse.embeds.map(embed => embed.toJSON());
+  assert.deepEqual(embeds.map(embed => embed.title),
+    ['🎀 UGC Rewards', '🎀 Robux Rewards', '🎀 Discord Rewards']);
+  for (const [index, category] of Object.keys(categories).entries()) {
+    for (const item of items) {
+      assert.equal(embeds[index].description.includes(`**${item.name}**`), item.category === category);
+    }
+  }
   const all = await runShop('browse');
   const filtered = await runShop('browse', { category: 'robux' });
   for (const item of items) {
@@ -61,6 +76,14 @@ test('fixed-price purchases require a redemption ticket', async () => {
   try {
     const reply = await runShop('buy', { item: 'robux_50' });
     assert.match(reply, /Open a ticket/);
+    for (const name of ['extra charm', 'extracharm', 'extra_charm', '"Extra Charm"']) {
+      const { args } = parsePrefixCommand(`c shop buy ${name}`, 'c ');
+      const prefixReply = await getShopReply(mapArgumentsToOptions(args, shop.data));
+      assert.match(prefixReply.content, /Open a ticket/);
+    }
+    const { args } = parsePrefixCommand('c shop buy unknown reward', 'c ');
+    const unknown = await getShopReply(mapArgumentsToOptions(args, shop.data));
+    assert.match(unknown.content, /couldn’t find that reward/);
   } finally {
     if (prior === undefined) delete process.env.CUNVRS_REDEMPTIONS_ENABLED;
     else process.env.CUNVRS_REDEMPTIONS_ENABLED = prior;
