@@ -22,25 +22,46 @@ const addStake = sub => sub.addIntegerOption(option => option
   .setMaxValue(MAX_STAKE));
 
 const games = {
-  slots: { title: '🎰 Ribbon Reels', prompt: 'Match two symbols for 2× or three for 6×.', buttons: [['spin', 'Spin the reels', '🎰']] },
-  coinflip: { title: '🪙 Moon & Ribbon', prompt: 'Choose a side and flip the coin.', buttons: [['moon', 'Moon', '🌙'], ['ribbon', 'Ribbon', '🎀']] },
-  highlow: { title: '🃏 Lucky Seven', prompt: 'Your starting card is **7**. Will the next card be higher or lower?', buttons: [['high', 'Higher', '⬆️'], ['low', 'Lower', '⬇️']] },
-  fortune: { title: '🥠 Your tiny fortune', prompt: 'A warm cookie is waiting for you.', buttons: [['open', 'Crack the cookie', '🥠']] },
+  slots: {
+    title: '🎀 Ribbon Reels',
+    color: 0xF9B6D2,
+    prompt: '🍓 **Ready to spin?**\nMatch a pair for **2×** or all three for **6×**.',
+    buttons: [['spin', 'Give it a spin!', '🎰']],
+  },
+  coinflip: {
+    title: '🌙 Moon & Ribbon',
+    color: 0xD9C5F4,
+    prompt: '🪙 **One little coin, two lucky sides.**\nWhich one will land face up?',
+    buttons: [['moon', 'Pick Moon', '🌙'], ['ribbon', 'Pick Ribbon', '🎀']],
+  },
+  highlow: {
+    title: '🃏 Lucky Seven',
+    color: 0xBFE5D5,
+    prompt: '🍀 **Your starting card is 7.**\nWill the next card go higher or lower?',
+    buttons: [['high', 'Go higher', '⬆️'], ['low', 'Go lower', '⬇️']],
+  },
+  fortune: {
+    title: '🥠 The Cookie Jar',
+    color: 0xFFD5AC,
+    prompt: '🍪 **Fresh from the oven!**\nCrack your cookie to read the little note inside.',
+    buttons: [['open', 'Crack it open!', '🥠']],
+  },
 };
 
-function card(title, description, footer) {
-  return new EmbedBuilder({ color: 0xFFEDF4, title, description, footer: { text: footer } });
+function card({ title, color }, description, footer) {
+  return new EmbedBuilder({ color, title, description, footer: { text: footer } });
 }
 
 function play(game, pick, stake) {
   let multiplier;
   let result;
-  if (game === 'fortune') return fortunes[randomInt(fortunes.length)];
+  if (game === 'fortune') return `💌 **A little note for you**\n> ${fortunes[randomInt(fortunes.length)]}`;
   if (game === 'slots') {
     const reels = Array.from({ length: 3 }, () => symbols[randomInt(symbols.length)]);
     const unique = new Set(reels).size;
     multiplier = unique === 1 ? 6 : unique === 2 ? 2 : 0;
-    result = reels.join('  │  ');
+    const match = unique === 1 ? '🎉 **Ribbon jackpot!**' : unique === 2 ? '💞 **A matching pair!**' : '🍓 **Three different treats!**';
+    result = `${match}\n${reels.map(symbol => `**${symbol}**`).join('  ♡  ')}`;
   } else if (game === 'coinflip') {
     const side = randomInt(2) === 0 ? 'moon' : 'ribbon';
     multiplier = pick === side ? 2 : 0;
@@ -51,8 +72,10 @@ function play(game, pick, stake) {
     result = `🃏 Starting card **7** → drawn card **${draw}**`;
   }
   const change = stake * (multiplier - 1);
-  const score = change === 0 ? '♡ Tie! Your stake is returned.' :
-    `♡ **${change > 0 ? '+' : '−'}${Math.abs(change)} play points**`;
+  const points = Math.abs(change).toLocaleString('en-US');
+  const score = change === 0 ? '🤝 **A tie!** Your stake comes back to you.' :
+    change > 0 ? `✨ **Sweet win!** +${points} play points` :
+      `☁️ **A little unlucky this time.** −${points} play points`;
   return `${result}\n\n${score}`;
 }
 
@@ -71,7 +94,8 @@ export default {
 
   async execute(interaction) {
     const game = interaction.options.getSubcommand();
-    const { title, prompt, buttons } = games[game];
+    const theme = games[game];
+    const { prompt, buttons } = theme;
     const stake = game === 'fortune' ? 0 : interaction.options.getInteger('stake') ?? 10;
     if (game !== 'fortune' && (!Number.isSafeInteger(stake) || stake < 1 || stake > MAX_STAKE)) {
       await interaction.reply({ content: '♡ Pick a stake between 1 and 1,000 play points.' });
@@ -80,11 +104,12 @@ export default {
 
     const prefix = `arcade:${interaction.id}:`;
     const row = new ActionRowBuilder().addComponents(buttons.map(([id, label, emoji]) =>
-      new ButtonBuilder().setCustomId(prefix + id).setLabel(label).setEmoji(emoji).setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(prefix + id).setLabel(label).setEmoji(emoji)
+        .setStyle(id === 'low' || id === 'ribbon' ? ButtonStyle.Secondary : ButtonStyle.Primary)
     ));
-    const summary = stake ? `\n\n♡ Stake: **${stake} play points**` : '';
+    const summary = stake ? `\n\n♡ Stake **${stake.toLocaleString('en-US')} play points**` : '';
     await interaction.reply({
-      embeds: [card(title, prompt + summary, 'Pick a button within 60 seconds')],
+      embeds: [card(theme, prompt + summary, '♡ Cunvrs Arcade · Tap a button within 60 seconds')],
       components: [row],
     });
     const message = await interaction.fetchReply();
@@ -102,14 +127,16 @@ export default {
     collector.on('collect', button => {
       const result = play(game, button.customId.slice(prefix.length), stake);
       void button.update({
-        embeds: [card(title, result, 'Round complete · play points reset each round')],
+        embeds: [card(theme, result, game === 'fortune'
+          ? '♡ Cunvrs Arcade · A fresh cookie is always waiting'
+          : '♡ Cunvrs Arcade · Play points reset each round')],
         components: [],
       }).catch(error => logger.warn('Could not display arcade result', { error: error.message }));
     });
     collector.on('end', collected => {
       if (collected.size) return;
       void interaction.editReply({
-        embeds: [card(title, '♡ This round closed. Start another with /arcade.', 'Round expired')],
+        embeds: [card(theme, '🌙 **This round closed.** Start another with /arcade.', '♡ Cunvrs Arcade')],
         components: [],
       }).catch(() => {});
     });
