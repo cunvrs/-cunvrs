@@ -3,10 +3,19 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../src/utils/logger.js';
-import { EXPECTED_SCHEMA_LABEL, EXPECTED_SCHEMA_VERSION } from '../src/config/database/schemaVersion.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+const command = process.argv[2];
+
+if (!command || !['apply', 'check', 'status'].includes(command)) {
+  logger.error('Please specify a valid command: apply, check, or status.');
+  process.exit(1);
+}
+
+const { EXPECTED_SCHEMA_LABEL, EXPECTED_SCHEMA_VERSION } =
+  await import('../src/config/database/schemaVersion.js');
 
 // Imported after dotenv.config so resolveSslConfig sees the loaded env vars.
 const { resolveSslConfig } = await import('../src/config/database/postgres.js');
@@ -19,6 +28,31 @@ const {
   triggerDefinitions,
 } = await import('../src/utils/database/schema.js');
 const { assertAllowlistedIdentifier, quoteIdentifier } = await import('../src/utils/sqlIdentifiers.js');
+
+// Require an explicit local test database for migrations.
+if (command === 'apply') {
+  const databaseUrl = process.env.POSTGRES_URL || '';
+
+  if (!databaseUrl) {
+    throw new Error('POSTGRES_URL must be explicitly configured.');
+  }
+
+  const target = new URL(databaseUrl);
+
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(
+    target.hostname.toLowerCase()
+  );
+
+  const isTestDatabase =
+    target.pathname === '/cunvrs_restore_test';
+
+  if (!isLocalHost || !isTestDatabase) {
+    console.error(
+      'Migration blocked: only the local cunvrs_restore_test database is allowed.'
+    );
+    process.exit(1);
+  }
+}
 
 const { Pool } = pg;
 
@@ -131,9 +165,17 @@ const createTriggers = async (client) => {
 };
 
 const migrate = async () => {
-  const client = await pool.connect();
-
+  let client;
   try {
+    client = await pool.connect();
+    const { rows: [target] } = await client.query(
+      'SELECT current_database() AS database, host(inet_server_addr()) AS address'
+    );
+    if (target.database !== 'cunvrs_restore_test' ||
+        !['127.0.0.1', '::1'].includes(target.address)) {
+      throw new Error('Migration blocked: the connected database is not the local restore test database.');
+    }
+
     logger.info('🚀 Starting database migration...');
 
     await createTables(client);
@@ -146,9 +188,9 @@ const migrate = async () => {
     logger.info('📚 Your database is now ready for TitanBot.');
   } catch (error) {
     logger.error('❌ Migration failed:', error);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
-    client.release();
+    client?.release();
     await pool.end();
   }
 };
@@ -206,8 +248,6 @@ const printMigrationStatus = async () => {
     await pool.end();
   }
 };
-
-const command = process.argv[2] || 'apply';
 
 if (command === 'apply') {
   migrate();

@@ -44,7 +44,7 @@ export const botConfig = {
     // If true, old commands are removed before re-registering.
     deleteCommands: false,
 
-    // Optional server ID retained for tutorial compatibility; not used for command registration.
+    // Optional server ID for guild-scoped slash command registration.
     testGuildId: process.env.TEST_GUILD_ID,
 
     // When true (or MAINTENANCE_MODE=true), only bot owners can run commands.
