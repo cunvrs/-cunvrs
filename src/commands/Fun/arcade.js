@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 
+const MAX_STAKE = 1000;
 const symbols = ['🎀 Ribbon', '🍓 Berry', '🌙 Moon', '🧁 Cupcake', '✨ Star'];
 const fortunes = [
   'A tiny win is waiting in a place you usually scroll past.',
@@ -16,9 +17,9 @@ const fortunes = [
 
 const addStake = sub => sub.addIntegerOption(option => option
   .setName('stake')
-  .setDescription('Play points for this round (default 10)')
+  .setDescription('Play points for this round (1 to 1,000, default 10)')
   .setMinValue(1)
-  .setMaxValue(100));
+  .setMaxValue(MAX_STAKE));
 
 const games = {
   slots: { title: '🎰 Ribbon Reels', prompt: 'Match two symbols for 2× or three for 6×.', buttons: [['spin', 'Spin the reels', '🎰']] },
@@ -62,15 +63,9 @@ export default {
     .addSubcommand(sub => addStake(sub.setName('slots')
       .setDescription('Spin three reels and match cute symbols')))
     .addSubcommand(sub => addStake(sub.setName('coinflip')
-      .setDescription('Call the moon or the ribbon')
-      .addStringOption(option => option.setName('pick')
-        .setDescription('Which side will land face up?')
-        .addChoices({ name: '🌙 Moon', value: 'moon' }, { name: '🎀 Ribbon', value: 'ribbon' }))))
+      .setDescription('Call the moon or the ribbon')))
     .addSubcommand(sub => addStake(sub.setName('highlow')
-      .setDescription('Guess whether the next card beats a seven')
-      .addStringOption(option => option.setName('pick')
-        .setDescription('Call higher or lower than 7')
-        .addChoices({ name: 'Higher', value: 'high' }, { name: 'Lower', value: 'low' }))))
+      .setDescription('Guess whether the next card beats a seven')))
     .addSubcommand(sub => sub.setName('fortune')
       .setDescription('Open a tiny fortune cookie')),
 
@@ -78,19 +73,13 @@ export default {
     const game = interaction.options.getSubcommand();
     const { title, prompt, buttons } = games[game];
     const stake = game === 'fortune' ? 0 : interaction.options.getInteger('stake') ?? 10;
-    if (game !== 'fortune' && (!Number.isSafeInteger(stake) || stake < 1 || stake > 100)) {
-      await interaction.reply({ content: '♡ Pick a stake between 1 and 100 play points.' });
+    if (game !== 'fortune' && (!Number.isSafeInteger(stake) || stake < 1 || stake > MAX_STAKE)) {
+      await interaction.reply({ content: '♡ Pick a stake between 1 and 1,000 play points.' });
       return;
     }
 
-    const preselected = buttons.length > 1 ? interaction.options.getString('pick')?.toLowerCase() : null;
-    const choices = preselected ? buttons.filter(([id]) => id === preselected) : buttons;
-    if (!choices.length) {
-      await interaction.reply({ content: `♡ Pick ${buttons.map(([id]) => id).join(' or ')}.` });
-      return;
-    }
     const prefix = `arcade:${interaction.id}:`;
-    const row = new ActionRowBuilder().addComponents(choices.map(([id, label, emoji]) =>
+    const row = new ActionRowBuilder().addComponents(buttons.map(([id, label, emoji]) =>
       new ButtonBuilder().setCustomId(prefix + id).setLabel(label).setEmoji(emoji).setStyle(ButtonStyle.Secondary)
     ));
     const summary = stake ? `\n\n♡ Stake: **${stake} play points**` : '';
@@ -104,7 +93,7 @@ export default {
       time: 60_000,
       max: 1,
       filter(button) {
-        if (!choices.some(([id]) => button.customId === prefix + id)) return false;
+        if (!buttons.some(([id]) => button.customId === prefix + id)) return false;
         if (button.user.id === interaction.user.id) return true;
         void button.reply({ content: '♡ Start your own round with /arcade.', flags: MessageFlags.Ephemeral }).catch(() => {});
         return false;

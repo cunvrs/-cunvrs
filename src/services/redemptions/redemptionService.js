@@ -421,7 +421,9 @@ if (record.channel_id !== channelId) {
     }
 
     if (record.user_id === staffId && action !== 'decline') {
-      throw new Error('Staff cannot process their own redemption.');
+      const error = new Error('Staff cannot process their own redemption.');
+      error.code = 'SELF_REDEMPTION';
+      throw error;
     }
 
     let walletAfter = null;

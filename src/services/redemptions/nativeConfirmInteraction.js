@@ -67,9 +67,11 @@ export async function handleNativeRedemptionConfirmation(
     );
 
     if (!record) {
-      throw new Error(
-        'Request is no longer eligible in this ticket.'
-      );
+      await interaction.editReply({
+        content: '♡ This request is no longer eligible. Open a fresh menu to see pending requests.',
+        allowedMentions: { parse: [] }
+      });
+      return true;
     }
 
     const runTransition =
@@ -105,6 +107,13 @@ export async function handleNativeRedemptionConfirmation(
     });
 
   } catch (error) {
+    if (error.code === 'SELF_REDEMPTION') {
+      await interaction.editReply({
+        content: '♡ Ask another redemption manager to approve this request. You can decline your own request to get your reserved Unicoins back.',
+        allowedMentions: { parse: [] }
+      });
+      return true;
+    }
     console.error(
       '[native redemption confirmation]',
       error.message
